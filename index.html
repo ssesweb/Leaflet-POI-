@@ -1,113 +1,177 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Leaflet POI 示例</title>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Location Map</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <style>
-        html, body {
-            height: 100%; /* 设置html和body的高度为100% */
-            margin: 0;
-            padding: 0;
+        #map { height: 200px; width: 100%; }
+        .info-box { 
+            font-size: 12px; 
+            text-align: left; 
+            margin-bottom: 10px; 
+            line-height: 1.8;
         }
-        #map {
-            height: 30vh; /* 设置地图高度为视口高度的30% */
+        .button-container {
+            text-align: center;
         }
-        #info {
-            display: flex;
-            justify-content: space-between;
-            margin: 10px;
-        }
-        #address-box, #copy-box {
-            padding: 10px;
-            border: 1px solid #ccc;
+        .copy-button {
+            font-size: 18px; 
+            padding: 10px 20px; 
+            cursor: pointer;
+            border: none;
+            background-color: #007BFF; 
+            color: white; 
             border-radius: 5px;
         }
-        #copy-button {
-            font-weight: bold; /* 加粗按钮文本 */
+        .spinner {
+            display: none;
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #007BFF;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .location-permission {
+            margin-top: 10px;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 5px;
+            border-radius: 5px;
+            font-size: 12px;
         }
     </style>
 </head>
 <body>
     <div id="map"></div>
-    <div id="info">
-        <div id="address-box">
-            <span id="address">地址将显示在这里</span>
-        </div>
-        <div id="copy-box">
-            <button id="copy-button">复制</button>
-        </div>
+    <div class="info-box" id="info-box">
+        <div id="address-display"></div>
     </div>
-    <p>授权定位将协助您的信息填写</p>
+    <div class="button-container">
+        <button class="copy-button" onclick="toggleInfoBox()">Show My Location</button>
+        <div class="spinner" id="spinner"></div>
+        <div class="location-permission" id="location-permission"></div>
+    </div>
+
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script>
+        // 定义语言文本
+        var texts = {
+            en: {
+                copy: 'COPY',
+                locationPermission: 'Allowing location access will help fill in your information',
+                copied: 'Address copied to clipboard!',
+                copyError: 'Unable to copy text: ',
+                showLocation: 'Show My Location'
+            },
+            it: {
+                copy: 'COPIA',
+                locationPermission: 'Autorizzare la localizzazione aiuterà a compilare le tue informazioni',
+                copied: 'Indirizzo copiato negli appunti!',
+                copyError: 'Impossibile copiare il testo: ',
+                showLocation: 'Mostra la mia posizione'
+            },
+            zh: {
+                copy: '复制',
+                locationPermission: '允许位置访问将有助于填写您的信息',
+                copied: '地址已复制到剪贴板！',
+                copyError: '无法复制文本：',
+                showLocation: '展示我的位置'
+            }
+        };
+
+        // 默认语言设置为英语
+        var lang = 'en';
+
         var defaultLat = 41.891767; // 罗马的纬度
         var defaultLng = 12.482325; // 罗马的经度
 
-        // 初始化地图，设置默认视图为罗马
-        var map = L.map('map', {
-            zoomControl: false // 禁用默认的缩放控件
-        }).setView([defaultLat, defaultLng], 13);
+        var map;
+        var mapInitialized = false;
 
-        // 添加OpenStreetMap图层
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        }).addTo(map);
+        function initializeMap() {
+            map = L.map('map', {
+                zoomControl: false // 禁用默认的缩放控件
+            }).setView([defaultLat, defaultLng], 13);
 
-        // 手动添加缩放控件到左下角
-        L.control.zoom({
-            position: 'bottomleft' // 你可以选择 'topleft', 'topright', 'bottomleft', 'bottomright'
-        }).addTo(map);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
 
-        // 尝试定位用户位置
-        map.locate({
-            setView: true,
-            maxZoom: 16
-        });
+            // 手动添加缩放控件到左下角
+            L.control.zoom({
+                position: 'bottomleft'
+            }).addTo(map);
 
-        // 当定位成功时的处理函数
-        map.on('locationfound', function(e) {
-            var userPosition = e.latlng;
-            var radius = e.accuracy / 2;
+            mapInitialized = true;
+        }
 
-            // 使用Nominatim进行逆地理编码
-            var url = 'https://nominatim.openstreetmap.org/search?format=json&q=' + userPosition.lat + ',' + userPosition.lng + '&polygon=1&addressdetails=1';
-            fetch(url)
-                .then(function(response) {
-                    return response.json();
-                })
-                .then(function(data) {
-                    var bounds = new L.LatLngBounds();
-                    data.forEach(function(poi) {
-                        var poiLatLng = new L.LatLng(poi.lat, poi.lon);
-                        var marker = L.marker(poiLatLng).addTo(map);
-                        var popupContent = poi.display_name;
-                        marker.bindPopup(popupContent).openPopup(); // 默认打开弹出窗口
-                        bounds.extend(poiLatLng);
-                    });
-                    map.fitBounds(bounds, {padding: [50, 50]});
-                    // 更新地址信息
-                    document.getElementById('address').textContent = data[0].display_name;
-                });
-        });
+        // 切换信息框显示状态并请求位置信息
+        function toggleInfoBox() {
+            var spinner = document.getElementById('spinner');
+            spinner.style.display = 'block';
+            if (mapInitialized) {
+                requestLocation();
+            } else {
+                initializeMap();
+                requestLocation();
+            }
+        }
 
-        // 当定位失败时的处理函数
-        map.on('locationerror', function(e) {
-            console.log('定位错误: ', e.message);
-            // 设置默认地址信息
-            document.getElementById('address').textContent = '罗马, 意大利';
-        });
-
-        // 复制按钮功能
-        document.getElementById('copy-button').addEventListener('click', function() {
-            var address = document.getElementById('address').textContent;
-            navigator.clipboard.writeText(address).then(function() {
-                alert('地址已复制到剪贴板!');
-            }, function(err) {
-                console.error('无法复制文本: ', err);
+        // 请求位置信息
+        function requestLocation() {
+            map.locate({
+                setView: true,
+                maxZoom: 16
             });
-        });
+
+            map.on('locationfound', function(e) {
+                var userPosition = e.latlng;
+                var radius = e.accuracy / 2;
+
+                // 使用Nominatim进行逆地理编码
+                var url = 'https://nominatim.openstreetmap.org/reverse?format=json&lat=' + userPosition.lat + '&lon=' + userPosition.lng + '&addressdetails=1';
+                fetch(url)
+                    .then(function(response) {
+                        return response.json();
+                    })
+                    .then(function(data) {
+                        var address = data.display_name || 'Unknown';
+
+                        document.getElementById('address-display').textContent = address;
+
+                        var bounds = new L.LatLngBounds();
+                        var poiLatLng = new L.LatLng(userPosition.lat, userPosition.lng);
+                        var marker = L.marker(poiLatLng).addTo(map);
+                        marker.bindPopup(address).openPopup(); // 自动打开弹出窗口
+                        bounds.extend(poiLatLng);
+                        map.fitBounds(bounds, {padding: [50, 50]});
+
+                        // 停止加载动画
+                        document.getElementById('spinner').style.display = 'none';
+                    });
+            });
+
+            map.on('locationerror', function(e) {
+                console.log('定位错误: ', e.message);
+                // 设置默认地址信息
+                document.getElementById('address-display').textContent = 'Unknown location';
+
+                // 停止加载动画
+                document.getElementById('spinner').style.display = 'none';
+            });
+        }
+
+        // 初始化地图
+        window.onload = function() {
+            initializeMap();
+            document.getElementById('location-permission').textContent = texts[lang].locationPermission;
+        };
     </script>
 </body>
 </html>
